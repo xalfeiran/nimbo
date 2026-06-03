@@ -3,12 +3,21 @@ import os from 'node:os';
 import path from 'node:path';
 import { Client, type ConnectConfig } from 'ssh2';
 import type { Workspace } from '../../src/types/workspace';
+import { KnownHostsStore } from './knownHosts';
 
 /** Expand a leading `~` to the user's home directory. */
 export function expandHome(p: string): string {
   if (p === '~') return os.homedir();
   if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
   return p;
+}
+
+// Host-key store, configured once at startup (see configureKnownHosts).
+let knownHosts: KnownHostsStore | null = null;
+
+/** Wire up the TOFU host-key store. Call once after the app is ready. */
+export function configureKnownHosts(store: KnownHostsStore): void {
+  knownHosts = store;
 }
 
 /**
@@ -20,12 +29,11 @@ export function expandHome(p: string): string {
  * passphrases in this first pass.
  *
  * ---------------------------------------------------------------------------
- * SECURITY TODO (host key verification):
- * For the MVP we accept the server's host key on first sight (TOFU without
- * persistence). This is vulnerable to MITM. A later milestone should:
- *   - read ~/.ssh/known_hosts,
- *   - compare/persist the host key via a real `hostVerifier`,
- *   - prompt the user on first connect / mismatch.
+ * Host-key verification: trust-on-first-use, persisted via KnownHostsStore
+ * (see configureKnownHosts). The first time we see a host we record its key
+ * fingerprint; later connections are rejected if the fingerprint changes
+ * (possible MITM or a rotated key). This does not yet read the system
+ * ~/.ssh/known_hosts or prompt the user on mismatch.
  * ---------------------------------------------------------------------------
  *
  * SECURITY TODO (encrypted keys): passphrase-protected keys are not yet
@@ -34,14 +42,18 @@ export function expandHome(p: string): string {
  * Keychain (see electron/security/keychain.ts).
  */
 export async function buildConnectConfig(workspace: Workspace): Promise<ConnectConfig> {
+  const host = workspace.hostname;
+  const port = workspace.port || 22;
   const config: ConnectConfig = {
-    host: workspace.hostname,
-    port: workspace.port || 22,
+    host,
+    port,
     username: workspace.username,
     readyTimeout: 20000,
     keepaliveInterval: 15000,
-    // TODO(security): replace with real known_hosts verification.
-    hostVerifier: () => true
+    // Trust-on-first-use host-key verification. If the store isn't configured
+    // (shouldn't happen in the running app) we fail closed and reject.
+    hostVerifier: (key: Buffer) =>
+      knownHosts ? knownHosts.verify(host, port, key) : false
   };
 
   // ssh-agent fallback (and primary auth if no identityFile).
@@ -120,6 +132,14 @@ export function connect(workspace: Workspace): Promise<Client> {
 /** Turn common ssh2 errors into friendlier messages. */
 export function describeSshError(err: Error & { level?: string; code?: string }): string {
   const level = err.level;
+  if (/host key verification|hostkey|host fingerprint/i.test(err.message || '')) {
+    return (
+      'Host key verification failed: the server presented a different key than ' +
+      'the one trusted on first connect. This may be a man-in-the-middle, or the ' +
+      "host's key was legitimately rotated. If you trust the change, remove this " +
+      "host from the app's known_hosts.json and reconnect."
+    );
+  }
   if (level === 'client-authentication') {
     return 'Authentication failed. Check the username and SSH key (or ssh-agent).';
   }

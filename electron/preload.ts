@@ -42,7 +42,10 @@ const api: NimboApi = {
 
   onTerminalData: (cb: (e: TermDataEvent) => void) => on(IPC.TERM_DATA, cb),
   onTerminalExit: (cb: (e: TermExitEvent) => void) => on(IPC.TERM_EXIT, cb),
-  onTerminalError: (cb: (e: TermErrorEvent) => void) => on(IPC.TERM_ERROR, cb)
+  onTerminalError: (cb: (e: TermErrorEvent) => void) => on(IPC.TERM_ERROR, cb),
+
+  authInfo: () => ipcRenderer.invoke(IPC.AUTH_INFO),
+  requestUnlock: () => ipcRenderer.invoke(IPC.AUTH_UNLOCK)
 };
 
 contextBridge.exposeInMainWorld('nimbo', api);

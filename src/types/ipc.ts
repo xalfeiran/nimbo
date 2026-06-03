@@ -30,7 +30,11 @@ export const IPC = {
   // Interactive terminal (main -> renderer, per-session events)
   TERM_DATA: 'term:data',
   TERM_EXIT: 'term:exit',
-  TERM_ERROR: 'term:error'
+  TERM_ERROR: 'term:error',
+
+  // Biometric app lock (lock window <-> main)
+  AUTH_INFO: 'auth:info',
+  AUTH_UNLOCK: 'auth:unlock'
 } as const;
 
 // ---- Payloads ------------------------------------------------------------
@@ -68,6 +72,20 @@ export interface RunCommandRequest {
   command: WorkspaceCommand | { command: string };
 }
 
+// ---- Biometric lock ------------------------------------------------------
+
+export interface AuthInfo {
+  /** Touch ID is present and usable on this machine. */
+  biometricAvailable: boolean;
+  /** Human-friendly label for the available method. */
+  method: 'touch-id' | 'none';
+}
+
+export interface UnlockResult {
+  ok: boolean;
+  error?: string;
+}
+
 // ---- The API surface exposed on window.nimbo -----------------------------
 
 export interface NimboApi {
@@ -88,6 +106,10 @@ export interface NimboApi {
   onTerminalData(cb: (e: TermDataEvent) => void): () => void;
   onTerminalExit(cb: (e: TermExitEvent) => void): () => void;
   onTerminalError(cb: (e: TermErrorEvent) => void): () => void;
+
+  // Biometric lock (used by the lock window)
+  authInfo(): Promise<AuthInfo>;
+  requestUnlock(): Promise<UnlockResult>;
 }
 
 declare global {
