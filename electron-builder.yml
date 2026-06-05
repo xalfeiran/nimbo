@@ -1,5 +1,12 @@
 # electron-builder configuration for Nimbo.
-# Build with:  npm run dist:mac   (produces an unsigned .dmg + .zip in release/)
+# Build with:  npm run dist:mac   (produces a signed + notarized .dmg + .zip in release/)
+#
+# Signing requires a "Developer ID Application" cert in your login Keychain
+# (auto-discovered). Notarization reads App Store Connect API-key credentials
+# from the environment:
+#   APPLE_API_KEY     = absolute path to the AuthKey_XXXX.p8 file
+#   APPLE_API_KEY_ID  = the key's Key ID
+#   APPLE_API_ISSUER  = the Issuer ID (UUID) from App Store Connect
 appId: com.mindware.nimbo
 productName: Nimbo
 copyright: © 2026 Mindware (Xavier) — mindware.com.mx
@@ -32,11 +39,15 @@ mac:
       arch:
         - arm64
         - x64
-  # Unsigned, personal-use build. Hardened runtime / notarization are skipped;
-  # see the README notes for enabling Developer ID signing later.
-  identity: null
-  hardenedRuntime: false
+  # Signed + notarized Developer ID build.
+  # `identity` is omitted so electron-builder auto-discovers the installed
+  # "Developer ID Application" certificate. Set CSC_IDENTITY_AUTO_DISCOVERY=false
+  # to force an unsigned build for quick local testing.
+  hardenedRuntime: true
   gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
 
 dmg:
   title: ${productName} ${version}

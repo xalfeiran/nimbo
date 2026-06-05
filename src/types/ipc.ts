@@ -21,6 +21,9 @@ export const IPC = {
   COMMAND_RUN: 'command:run',
   CHECKS_RUN: 'checks:run',
 
+  // File transfer (invoke/handle)
+  FILE_DOWNLOAD: 'file:download',
+
   // Interactive terminal (renderer -> main)
   TERM_OPEN: 'term:open',
   TERM_INPUT: 'term:input',
@@ -34,7 +37,8 @@ export const IPC = {
 
   // Biometric app lock (lock window <-> main)
   AUTH_INFO: 'auth:info',
-  AUTH_UNLOCK: 'auth:unlock'
+  AUTH_UNLOCK: 'auth:unlock',
+  AUTH_MINIMIZE: 'auth:minimize'
 } as const;
 
 // ---- Payloads ------------------------------------------------------------
@@ -72,6 +76,23 @@ export interface RunCommandRequest {
   command: WorkspaceCommand | { command: string };
 }
 
+// ---- File transfer -------------------------------------------------------
+
+export interface DownloadResult {
+  /** True if the file was saved locally. */
+  ok: boolean;
+  /** User cancelled the save dialog (not an error). */
+  canceled?: boolean;
+  /** Local path the file was written to. */
+  savedTo?: string;
+  /** Remote path that was fetched. */
+  remotePath?: string;
+  /** Bytes written on success. */
+  bytes?: number;
+  /** Error message on failure. */
+  error?: string;
+}
+
 // ---- Biometric lock ------------------------------------------------------
 
 export interface AuthInfo {
@@ -97,6 +118,9 @@ export interface NimboApi {
   runCommand(workspaceId: string, command: string): Promise<CommandResult>;
   runChecks(workspaceId: string, checks?: ServiceCheck[]): Promise<ServiceCheckResult[]>;
 
+  /** Download a remote file (resolved against the workspace path) to disk. */
+  downloadFile(workspaceId: string, remoteName: string): Promise<DownloadResult>;
+
   // Terminal
   openTerminal(req: TermOpenRequest): Promise<void>;
   sendTerminalInput(sessionId: string, data: string): void;
@@ -110,6 +134,8 @@ export interface NimboApi {
   // Biometric lock (used by the lock window)
   authInfo(): Promise<AuthInfo>;
   requestUnlock(): Promise<UnlockResult>;
+  /** Minimize the lock window to the dock without unlocking. */
+  minimizeLock(): void;
 }
 
 declare global {

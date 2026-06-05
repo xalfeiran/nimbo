@@ -31,6 +31,9 @@ const api: NimboApi = {
   runChecks: (workspaceId: string, checks?: ServiceCheck[]) =>
     ipcRenderer.invoke(IPC.CHECKS_RUN, workspaceId, checks),
 
+  downloadFile: (workspaceId: string, remoteName: string) =>
+    ipcRenderer.invoke(IPC.FILE_DOWNLOAD, workspaceId, remoteName),
+
   openTerminal: (req: TermOpenRequest) => {
     ipcRenderer.send(IPC.TERM_OPEN, req);
     return Promise.resolve();
@@ -45,7 +48,8 @@ const api: NimboApi = {
   onTerminalError: (cb: (e: TermErrorEvent) => void) => on(IPC.TERM_ERROR, cb),
 
   authInfo: () => ipcRenderer.invoke(IPC.AUTH_INFO),
-  requestUnlock: () => ipcRenderer.invoke(IPC.AUTH_UNLOCK)
+  requestUnlock: () => ipcRenderer.invoke(IPC.AUTH_UNLOCK),
+  minimizeLock: () => ipcRenderer.send(IPC.AUTH_MINIMIZE)
 };
 
 contextBridge.exposeInMainWorld('nimbo', api);

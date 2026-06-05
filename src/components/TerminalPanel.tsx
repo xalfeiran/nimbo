@@ -45,6 +45,8 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(
     const statusCbRef = useRef(onStatusChange);
     statusCbRef.current = onStatusChange;
     const [state, setState] = useState<ConnState>('connecting');
+    // Bumping this re-runs the session-setup effect, reconnecting the shell.
+    const [restartKey, setRestartKey] = useState(0);
 
     useImperativeHandle(ref, () => ({
       runInTerminal: (command: string) => {
@@ -146,7 +148,7 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(
         term.dispose();
         termRef.current = null;
       };
-    }, [tabId, workspaceId]);
+    }, [tabId, workspaceId, restartKey]);
 
     // Refit + focus when this tab becomes the active/visible one.
     useEffect(() => {
@@ -186,6 +188,9 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(
           ? 'var(--amber)'
           : 'var(--red)';
 
+    // The shell is no longer live once it has closed or errored out.
+    const canRestart = state === 'closed' || state === 'error';
+
     return (
       <div className="terminal-wrap">
         <div className="terminal-wrap__bar">
@@ -193,6 +198,14 @@ export const TerminalPanel = forwardRef<TerminalHandle, TerminalPanelProps>(
             <span className="badge__dot" style={{ background: statusColor }} />
             {state}
           </span>
+          {canRestart && (
+            <button
+              className="btn btn--sm"
+              onClick={() => setRestartKey((k) => k + 1)}
+            >
+              Restart session
+            </button>
+          )}
           <button className="btn btn--ghost btn--sm" onClick={onClose}>
             Close shell
           </button>

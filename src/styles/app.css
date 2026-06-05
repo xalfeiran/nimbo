@@ -750,6 +750,41 @@ select.input {
   cursor: pointer;
 }
 
+/* Download-a-file row */
+.download-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.download-row__input {
+  flex: 1;
+  font-family: var(--mono);
+}
+.download-row .btn--primary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.download-row__hint {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.download-row__hint code {
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+.download-row__status {
+  margin-top: 8px;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+.download-row__status--ok {
+  color: var(--green);
+}
+.download-row__status--err {
+  color: var(--red);
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

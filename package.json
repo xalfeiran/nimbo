@@ -1,7 +1,7 @@
 {
   "name": "nimbo",
   "productName": "Nimbo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Nimbo — app-centered SSH workspace and runbook tool for developers managing multiple apps across shared servers.",
   "author": "Mindware <hola@mindware.com.mx>",
   "license": "UNLICENSED",

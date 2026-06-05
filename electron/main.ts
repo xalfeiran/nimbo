@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -13,6 +14,7 @@ import { ICON_DATA_URL } from './icon';
 import { JsonWorkspaceStore } from './storage/workspaceStore';
 import { TerminalSessionManager } from './ssh/terminalSession';
 import { runOutputCommand, runServiceChecks } from './ssh/commandRunner';
+import { downloadFile, resolveRemotePath } from './ssh/fileTransfer';
 import { configureKnownHosts } from './ssh/sshClient';
 import { KnownHostsStore } from './ssh/knownHosts';
 import { IPC } from '../src/types/ipc';
@@ -28,6 +30,23 @@ import { workspaceInputSchema } from '../src/schemas/workspaceSchema';
 app.setName('Nimbo');
 
 const isDev = !app.isPackaged;
+
+// ---- Startup timing -------------------------------------------------------
+// Logs elapsed time (ms since process start) at each launch milestone so we
+// can see what's responsible for slow cold starts. Enabled by default; set
+// NIMBO_PERF=0 to silence.
+const T0 = Date.now();
+const perfEnabled = process.env.NIMBO_PERF !== '0';
+let lastMark = T0;
+function perf(label: string): void {
+  if (!perfEnabled) return;
+  const now = Date.now();
+  const sinceStart = now - T0;
+  const sinceLast = now - lastMark;
+  lastMark = now;
+  console.log(`[perf] +${sinceStart}ms (Δ${sinceLast}ms) ${label}`);
+}
+perf('main module evaluated');
 
 // The N logo, embedded as a data URI (see electron/icon.ts).
 const appIcon = nativeImage.createFromDataURL(ICON_DATA_URL);
@@ -51,13 +70,20 @@ let locked = true; // start locked; resolved at launch based on availability
 let idleTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Touch ID availability on this machine (macOS only). */
+let biometricCache: boolean | null = null;
 function biometricAvailable(): boolean {
-  if (process.platform !== 'darwin') return false;
+  // Cache the result: canPromptTouchID can be slow and is called repeatedly
+  // (idle watch, lock/unlock, window setup).
+  if (biometricCache !== null) return biometricCache;
+  if (process.platform !== 'darwin') return (biometricCache = false);
+  const t = Date.now();
   try {
-    return systemPreferences.canPromptTouchID();
+    biometricCache = systemPreferences.canPromptTouchID();
   } catch {
-    return false;
+    biometricCache = false;
   }
+  perf(`biometricAvailable() resolved=${biometricCache} (took ${Date.now() - t}ms)`);
+  return biometricCache;
 }
 
 function createSplashWindow(): void {
@@ -115,11 +141,23 @@ function createWindow(): void {
     }
   });
 
+  // Trace the renderer load lifecycle to see if HTML/JS loading is the bottleneck.
+  const wc = mainWindow.webContents;
+  wc.on('did-start-loading', () => perf('renderer: did-start-loading'));
+  wc.on('dom-ready', () => perf('renderer: dom-ready'));
+  wc.on('did-finish-load', () => perf('renderer: did-finish-load'));
+  wc.on('did-fail-load', (_e, code, desc) =>
+    perf(`renderer: did-fail-load ${code} ${desc}`)
+  );
+
   // Reveal the main window only once it has painted, then dismiss the splash.
   const splashShownAt = Date.now();
   mainWindow.once('ready-to-show', () => {
+    perf('mainWindow ready-to-show');
     const wait = Math.max(0, SPLASH_MIN_MS - (Date.now() - splashShownAt));
+    perf(`enforcing splash min wait of ${wait}ms`);
     setTimeout(() => {
+      perf('splash wait elapsed; revealing window');
       splashWindow?.close();
       if (biometricAvailable()) {
         // Stay hidden behind the lock screen until Touch ID succeeds.
@@ -139,6 +177,7 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  perf('createWindow: starting renderer load');
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -169,8 +208,15 @@ const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"/>
     button:active{transform:translateY(1px);}
     button:disabled{opacity:.6;cursor:default;}
     .err{color:#ff8585;min-height:18px;}
+    .min{-webkit-app-region:no-drag;position:absolute;top:14px;right:16px;
+      width:30px;height:30px;padding:0;margin:0;border-radius:8px;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(148,163,184,.14);box-shadow:none;color:#94a3b8;
+      font-size:18px;line-height:1;font-weight:600;}
+    .min:hover{background:rgba(148,163,184,.26);color:#e8edf6;}
   </style></head>
   <body><div class="wrap">
+    <button class="min" id="minimize" title="Minimize">&#8211;</button>
     <img class="logo" src="__ICON__"/>
     <h1>Nimbo is locked</h1>
     <p id="hint">Unlock with Touch ID to continue.</p>
@@ -180,6 +226,8 @@ const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"/>
   <script>
     const btn = document.getElementById('unlock');
     const err = document.getElementById('err');
+    document.getElementById('minimize')
+      .addEventListener('click', () => window.nimbo.minimizeLock());
     async function tryUnlock(){
       err.textContent = '';
       btn.disabled = true;
@@ -213,10 +261,13 @@ function createLockWindow(): void {
     frame: false,
     resizable: false,
     movable: true,
+    minimizable: true,
     show: false,
     backgroundColor: '#0c1018',
     title: 'Nimbo — Locked',
-    alwaysOnTop: true,
+    // Not always-on-top: the lock screen guards Nimbo's own content but should
+    // not float above other apps' windows — the user can move it behind them.
+    alwaysOnTop: false,
     fullscreenable: false,
     icon: appIcon,
     webPreferences: {
@@ -229,7 +280,10 @@ function createLockWindow(): void {
 
   const html = LOCK_HTML.replace('__ICON__', ICON_DATA_URL);
   lockWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-  lockWindow.once('ready-to-show', () => lockWindow?.show());
+  lockWindow.once('ready-to-show', () => {
+    perf('lock window ready-to-show (Touch ID prompt next)');
+    lockWindow?.show();
+  });
   lockWindow.on('closed', () => {
     lockWindow = null;
   });
@@ -297,6 +351,11 @@ function registerIpc(): void {
     }
   });
 
+  // Minimize the lock screen to the dock without unlocking.
+  ipcMain.on(IPC.AUTH_MINIMIZE, () => {
+    lockWindow?.minimize();
+  });
+
   // ---- Workspace CRUD ----
   ipcMain.handle(IPC.WORKSPACES_LIST, () => store.list());
 
@@ -328,6 +387,39 @@ function registerIpc(): void {
       return runServiceChecks(workspace, checks ?? workspace.serviceChecks);
     }
   );
+
+  // ---- File download (SFTP) ----
+  ipcMain.handle(IPC.FILE_DOWNLOAD, async (_e, workspaceId: string, remoteName: string) => {
+    const workspace = await store.get(workspaceId);
+    if (!workspace) throw new Error(`Workspace "${workspaceId}" not found`);
+
+    // Validate/resolve the name up front so dialog only appears for valid input.
+    let suggested: string;
+    try {
+      const remotePath = resolveRemotePath(workspace.remotePath, remoteName);
+      suggested = path.basename(remotePath);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+
+    const parent = lockWindow ?? mainWindow;
+    const opts = {
+      title: 'Save downloaded file',
+      defaultPath: path.join(app.getPath('downloads'), suggested),
+      buttonLabel: 'Download'
+    };
+    const { canceled, filePath } = parent
+      ? await dialog.showSaveDialog(parent, opts)
+      : await dialog.showSaveDialog(opts);
+    if (canceled || !filePath) return { ok: false, canceled: true };
+
+    try {
+      const { remotePath, bytes } = await downloadFile(workspace, remoteName, filePath);
+      return { ok: true, savedTo: filePath, remotePath, bytes };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
 
   // ---- Interactive terminal (fire-and-forget from renderer) ----
   ipcMain.on(IPC.TERM_OPEN, async (_e, req: TermOpenRequest) => {
@@ -444,6 +536,7 @@ function buildAppMenu(): void {
 }
 
 app.whenReady().then(() => {
+  perf('app ready (whenReady)');
   // Dock icon on macOS (the window `icon` option is ignored there).
   if (process.platform === 'darwin' && !appIcon.isEmpty()) {
     app.dock?.setIcon(appIcon);
@@ -451,20 +544,25 @@ app.whenReady().then(() => {
 
   configureAboutPanel();
   buildAppMenu();
+  perf('menu + about panel built');
 
   createSplashWindow();
+  perf('splash window created');
 
   const userData = app.getPath('userData');
   store = new JsonWorkspaceStore(userData);
+  perf('workspace store initialized');
   configureKnownHosts(new KnownHostsStore(userData));
   terminals = new TerminalSessionManager({
     onData: (sessionId, data) => send(IPC.TERM_DATA, { sessionId, data }),
     onExit: (sessionId, code) => send(IPC.TERM_EXIT, { sessionId, code }),
     onError: (sessionId, message) => send(IPC.TERM_ERROR, { sessionId, message })
   });
+  perf('known hosts + terminal manager ready');
 
   registerIpc();
   createWindow();
+  perf('createWindow() returned');
 
   if (biometricAvailable()) {
     // Re-lock when the machine sleeps or the OS screen locks, and after idle.
