@@ -93,7 +93,7 @@ Each workspace looks like:
 {
   "id": "webroster-prod",
   "name": "WebRoster Production",
-  "hostname": "148.72.60.215",
+  "hostname": "203.0.113.10",
   "port": 22,
   "username": "deploy",
   "identityFile": "~/.ssh/webroster_prod",

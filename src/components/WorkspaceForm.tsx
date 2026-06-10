@@ -1,6 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { Workspace, WorkspaceCommand, ServiceCheck, CommandMode } from '../types/workspace';
 import { workspaceInputSchema, type WorkspaceInput } from '../schemas/workspaceSchema';
+import { InfoButton, Code, SshKeyGuide } from './InfoHelp';
+
+/** A form label with an inline info button that opens a help window. */
+function FieldLabel({
+  text,
+  title,
+  children,
+  wide
+}: {
+  text: string;
+  title?: string;
+  children: ReactNode;
+  wide?: boolean;
+}) {
+  return (
+    <div className="form-label form-label--info">
+      <span>{text}</span>
+      <InfoButton title={title ?? text} wide={wide}>
+        {children}
+      </InfoButton>
+    </div>
+  );
+}
 
 interface WorkspaceFormProps {
   /** Existing workspace when editing; undefined when creating. */
@@ -110,19 +133,31 @@ export function WorkspaceForm({ workspace, onSave, onCancel }: WorkspaceFormProp
         <div className="modal__body">
           <div className="form-grid">
             <div className="form-row">
-              <label className="form-label">Name</label>
+              <FieldLabel text="Name" title="Workspace name">
+                A friendly name for this connection, shown in the sidebar. Use anything that
+                helps you recognize it, e.g. <Code>WebRoster Production</Code>. It has no effect
+                on the SSH connection itself.
+              </FieldLabel>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)}
                 placeholder="WebRoster Production" />
             </div>
 
             <div className="form-row--2">
               <div className="form-row">
-                <label className="form-label">Hostname / IP</label>
+                <FieldLabel text="Hostname / IP" title="Hostname / IP address">
+                  The address AppShell connects to. Use the server’s public IP (e.g.{' '}
+                  <Code>203.0.113.10</Code>) or a domain that resolves to it (e.g.{' '}
+                  <Code>vps.mysite.com</Code>). This is the “where” of the SSH connection.
+                </FieldLabel>
                 <input className="input" value={hostname} onChange={(e) => setHostname(e.target.value)}
-                  placeholder="148.72.60.215" />
+                  placeholder="203.0.113.10" />
               </div>
               <div className="form-row">
-                <label className="form-label">Port</label>
+                <FieldLabel text="Port" title="SSH port">
+                  The TCP port the server’s SSH service listens on. The default is{' '}
+                  <Code>22</Code>. Only change it if your provider moved SSH to a custom port
+                  (some harden servers by using e.g. <Code>2222</Code>).
+                </FieldLabel>
                 <input className="input" value={port} onChange={(e) => setPort(e.target.value)}
                   placeholder="22" />
               </div>
@@ -130,19 +165,34 @@ export function WorkspaceForm({ workspace, onSave, onCancel }: WorkspaceFormProp
 
             <div className="form-row--2">
               <div className="form-row">
-                <label className="form-label">Username</label>
+                <FieldLabel text="Username" title="SSH username">
+                  The account AppShell logs in as on the server, e.g. <Code>deploy</Code>,{' '}
+                  <Code>root</Code>, or <Code>ubuntu</Code>. This is the user whose{' '}
+                  <Code>~/.ssh/authorized_keys</Code> must contain your public key, and whose
+                  permissions your commands run with.
+                </FieldLabel>
                 <input className="input" value={username} onChange={(e) => setUsername(e.target.value)}
                   placeholder="deploy" />
               </div>
               <div className="form-row">
-                <label className="form-label">Host label (optional)</label>
+                <FieldLabel text="Host label (optional)" title="Host label">
+                  A short, human‑friendly description of the machine (e.g.{' '}
+                  <Code>Production VPS</Code> or <Code>Hostinger</Code>). Purely cosmetic — it
+                  helps you tell similar servers apart. Safe to leave blank.
+                </FieldLabel>
                 <input className="input" value={hostLabel} onChange={(e) => setHostLabel(e.target.value)}
                   placeholder="Production VPS" />
               </div>
             </div>
 
             <div className="form-row">
-              <label className="form-label">SSH private key path (optional)</label>
+              <FieldLabel
+                text="SSH private key path (optional)"
+                title="Setting up your SSH private key"
+                wide
+              >
+                <SshKeyGuide />
+              </FieldLabel>
               <input className="input" value={identityFile} onChange={(e) => setIdentityFile(e.target.value)}
                 placeholder="~/.ssh/webroster_prod" />
               <span className="form-hint">
@@ -151,20 +201,36 @@ export function WorkspaceForm({ workspace, onSave, onCancel }: WorkspaceFormProp
             </div>
 
             <div className="form-row">
-              <label className="form-label">Remote app path (optional)</label>
+              <FieldLabel text="Remote app path (optional)" title="Remote app path">
+                A directory on the server to <Code>cd</Code> into before running your commands,
+                e.g. <Code>/var/www/webroster</Code>. Set this so shortcuts like “git pull” or
+                “restart” run in the right place. Leave blank to start in the login home
+                directory.
+              </FieldLabel>
               <input className="input" value={remotePath} onChange={(e) => setRemotePath(e.target.value)}
                 placeholder="/var/www/webroster" />
             </div>
 
             <div className="form-row">
-              <label className="form-label">Environment variables (KEY=VALUE per line)</label>
+              <FieldLabel text="Environment variables (KEY=VALUE per line)" title="Environment variables">
+                Variables exported on the server before each command runs. Write one per line
+                as <Code>KEY=VALUE</Code> (e.g. <Code>APP_ENV=production</Code>). Lines starting
+                with <Code>#</Code> are ignored. Use these for settings your commands expect in
+                the environment.
+              </FieldLabel>
               <textarea className="textarea" value={envText} onChange={(e) => setEnvText(e.target.value)}
                 placeholder={'APP_CONTEXT=webroster\nAPP_ENV=production'} />
             </div>
 
             {/* Commands */}
             <div className="form-row">
-              <label className="form-label">Command shortcuts</label>
+              <FieldLabel text="Command shortcuts" title="Command shortcuts">
+                Saved commands you can run on the server with one click. Give each a{' '}
+                <strong>Name</strong> and the <strong>command</strong> to execute. Mode{' '}
+                <Code>output</Code> captures the result in a panel; <Code>terminal</Code> opens an
+                interactive session. Tick <strong>Dangerous</strong> to require a confirmation
+                prompt, and <strong>Log tailer</strong> for commands that stream logs.
+              </FieldLabel>
               {commands.map((cmd) => (
                 <div className="subrow" key={cmd.id}>
                   <input className="input" placeholder="Name" value={cmd.name}
@@ -194,7 +260,13 @@ export function WorkspaceForm({ workspace, onSave, onCancel }: WorkspaceFormProp
 
             {/* Service checks */}
             <div className="form-row">
-              <label className="form-label">Service checks</label>
+              <FieldLabel text="Service checks" title="Service checks">
+                Lightweight health probes shown as status indicators. Each runs a{' '}
+                <strong>command</strong> and compares its trimmed output (case‑insensitive)
+                against the <strong>expected</strong> value. For example{' '}
+                <Code>systemctl is-active nginx</Code> expecting <Code>active</Code> shows green
+                when the service is up.
+              </FieldLabel>
               {checks.map((chk) => (
                 <div className="subrow subrow--check" key={chk.id}>
                   <input className="input" placeholder="Name" value={chk.name}
